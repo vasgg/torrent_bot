@@ -104,7 +104,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    app.post_init = lambda _: create_task(on_startup(app))
+    app.post_init = on_startup
     app.run_polling()
 
 
