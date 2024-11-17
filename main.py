@@ -25,8 +25,6 @@ async def handle_file(update: Update, context):
         return
 
     target_folder = Path(settings.FOLDER)
-    target_folder.mkdir(parents=True, exist_ok=True)
-
     file_path = target_folder / file.file_name
     try:
         file_data = await file.get_file()
