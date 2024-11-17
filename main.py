@@ -72,18 +72,23 @@ async def handle_file(update: Update, context):
     try:
         file_data = await file.get_file()
         await file_data.download_to_drive(str(file_path))
-        torrent_info = get_torrent_info(str(file_path))
-        await update.message.reply_text(f"Файл сохранён: {file.file_name}\n\nИнформация о файле:\n{torrent_info}")
+
+        with open(file_path, "rb") as torrent_file:
+            torrent_info = get_torrent_info(torrent_file)
+
+        await update.message.reply_text(
+            f"File saved: {file.file_name}\n\nTorrent info:\n{torrent_info}"
+        )
     except Exception as e:
-        logging.error(f"Ошибка при сохранении файла: {e}")
-        await update.message.reply_text(f"Не удалось сохранить файл: {file.file_name}")
+        logging.error(f"Unable to save file: {e}")
+        await update.message.reply_text(f"Unable to save file: {file.file_name}")
 
 
 async def notify_admin(bot, message):
     try:
         await bot.send_message(chat_id=settings.ADMINS[0], text=message)
     except Exception as e:
-        logging.error(f"Не удалось отправить сообщение админу {settings.ADMINS[0]}: {e}")
+        logging.error(f"Unable to send message to admin {settings.ADMINS[0]}: {e}")
 
 
 async def on_startup(bot):
