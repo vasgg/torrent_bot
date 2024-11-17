@@ -5,8 +5,8 @@ import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 
-from src.config import Settings, setup_logs
-from src.lexicon import texts
+from config import Settings, setup_logs
+from lexicon import texts
 
 settings = Settings()
 
