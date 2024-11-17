@@ -1,4 +1,3 @@
-from asyncio import run
 import logging
 import os
 
@@ -32,7 +31,7 @@ async def handle_file(update: Update, context):
     await update.message.reply_text(f"Файл сохранён: {file.file_name}")
 
 
-async def main():
+def main():
     setup_logs('torrent_bot')
     app = Application.builder().token(settings.TOKEN.get_secret_value()).build()
 
@@ -43,9 +42,5 @@ async def main():
     app.run_polling()
 
 
-def run_main():
-    run(main())
-
-
 if __name__ == '__main__':
-    run_main()
+    main()
