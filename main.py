@@ -1,4 +1,3 @@
-from asyncio import create_task
 import logging
 from pathlib import Path
 from torrent_parser import TorrentFileParser
