@@ -1,4 +1,4 @@
-from asyncio import run
+from asyncio import create_task
 import logging
 from pathlib import Path
 from torrent_parser import TorrentFileParser
@@ -103,8 +103,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    app.post_init = lambda _: run(on_startup(app))
-
+    app.post_init = lambda _: create_task(on_startup(app))
     app.run_polling()
 
 
