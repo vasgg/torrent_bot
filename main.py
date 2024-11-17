@@ -49,19 +49,20 @@ async def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-    await notify_admin(app.bot, "Бот запущен и готов к работе.")
 
-    try:
+    async def on_startup():
+        await notify_admin(app.bot, "Бот запущен и готов к работе.")
         logging.info("Bot started")
-        app.run_polling()
-    finally:
+
+    async def on_shutdown():
         await notify_admin(app.bot, "Бот завершает работу.")
         logging.info("Bot stopped")
 
+    app.post_init = on_startup
+    app.shutdown = on_shutdown
 
-def run_main():
-    run(main())
+    app.run_polling()
 
 
 if __name__ == '__main__':
-    run_main()
+    main()
