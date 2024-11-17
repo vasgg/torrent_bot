@@ -1,4 +1,4 @@
-from asyncio import run
+from asyncio import get_event_loop
 import logging
 from pathlib import Path
 from torrent_parser import TorrentFileParser
@@ -112,8 +112,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    app.post_init_callback = lambda: run(on_startup(app.bot))
-    app.shutdown_callback = lambda: run(on_shutdown(app.bot))
+    app.post_init = lambda: get_event_loop().create_task(on_startup(app))
+    app.shutdown = lambda: get_event_loop().create_task(on_shutdown(app))
 
     app.run_polling()
 
