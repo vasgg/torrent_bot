@@ -1,42 +1,46 @@
 from asyncio import run
 import logging
+import os
 
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
-from src.handlers.commands_handler import router as main_router
-from src.handlers.errors_handler import router as errors_router
-from src.internal.config import Settings, setup_logs
-from src.internal.notify_admin import on_shutdown, on_startup
-from src.middlewares.logging_middleware import LoggingMiddleware
-from src.middlewares.updates_dumper_middleware import UpdatesDumperMiddleware
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters
+
+from src.config import Settings, setup_logs
+from src.lexicon import texts
+
+settings = Settings()
+
+
+async def start(update: Update, context):
+    await update.message.reply_text(texts['welcome'].format(username=update.message.from_user.full_name))
+
+
+async def handle_file(update: Update, context):
+    user_id = update.message.from_user.id
+    if user_id not in settings.ADMINS:
+        return
+
+    file = update.message.document
+    if not file.file_name.endswith(".torrent"):
+        await update.message.reply_text("Я принимаю только .torrent файлы.")
+        return
+
+    file_path = os.path.join(settings.FOLDER, file.file_name)
+    file_data = await file.get_file()
+    await file_data.download_to_drive(file_path)
+
+    await update.message.reply_text(f"Файл сохранён: {file.file_name}")
 
 
 async def main():
     setup_logs('torrent_bot')
-    settings = Settings()
+    app = Application.builder().token(settings.TOKEN.get_secret_value()).build()
 
-    bot = Bot(
-        token=settings.TOKEN.get_secret_value(),
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    storage = MemoryStorage()
-    dispatcher = Dispatcher(storage=storage, settings=settings)
-
-    dispatcher.update.outer_middleware(UpdatesDumperMiddleware())
-    dispatcher.startup.register(on_startup)
-    dispatcher.shutdown.register(on_shutdown)
-    dispatcher.message.middleware.register(LoggingMiddleware())
-    dispatcher.callback_query.middleware.register(LoggingMiddleware())
-    dispatcher.include_routers(
-        main_router,
-        errors_router,
-    )
-
-    await dispatcher.start_polling(bot)
-    logging.info("Torrent bot started")
+    logging.info("Bot started")
+    app.run_polling()
 
 
 def run_main():
