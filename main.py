@@ -85,8 +85,9 @@ async def handle_file(update: Update, context):
 
 
 async def notify_admin(bot, message):
+    uptime = get_uptime_message()
     try:
-        await bot.send_message(chat_id=settings.ADMINS[0], text=message)
+        await bot.send_message(chat_id=settings.ADMINS[0], text=message + f"\n\n{uptime}")
     except Exception as e:
         logging.error(f"Unable to send message to admin {settings.ADMINS[0]}: {e}")
 
