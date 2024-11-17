@@ -1,5 +1,5 @@
 import logging
-import os
+from pathlib import Path
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
@@ -24,11 +24,17 @@ async def handle_file(update: Update, context):
         await update.message.reply_text("Я принимаю только .torrent файлы.")
         return
 
-    file_path = os.path.join(settings.FOLDER, file.file_name)
-    file_data = await file.get_file()
-    await file_data.download_to_drive(file_path)
+    target_folder = Path(settings.FOLDER)
+    target_folder.mkdir(parents=True, exist_ok=True)
 
-    await update.message.reply_text(f"Файл сохранён: {file.file_name}")
+    file_path = target_folder / file.file_name
+    try:
+        file_data = await file.get_file()
+        await file_data.download_to_drive(str(file_path))
+        await update.message.reply_text(f"Файл сохранён: {file.file_name}")
+    except Exception as e:
+        logging.error(f"Ошибка при сохранении файла: {e}")
+        await update.message.reply_text(f"Не удалось сохранить файл: {file.file_name}")
 
 
 def main():
