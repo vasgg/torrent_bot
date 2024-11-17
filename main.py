@@ -1,6 +1,7 @@
 from asyncio import run
 import logging
 from pathlib import Path
+from torrent_parser import TorrentFileParser
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
@@ -12,7 +13,40 @@ settings = Settings()
 
 
 async def start(update: Update, context):
-    await update.message.reply_text(texts['welcome'].format(username=update.message.from_user.full_name))
+    uptime = get_uptime_message()
+    message = (
+        texts['welcome'].format(username=update.message.from_user.full_name) +
+        f"\n\nUptime:\n{uptime}"
+    )
+    await update.message.reply_text(message)
+
+
+def get_uptime_message() -> str:
+    try:
+        with open('/proc/uptime') as f:
+            uptime_seconds = float(f.readline().split()[0])
+
+        days = int(uptime_seconds // (24 * 3600))
+        hours = int((uptime_seconds % (24 * 3600)) // 3600)
+        minutes = int((uptime_seconds % 3600) // 60)
+
+        return f"System uptime: {days} days, {hours} hours, {minutes} minutes."
+    except Exception as e:
+        logging.error(f"Unable to get system uptime: {e}")
+        return "Unable to get system uptime."
+
+
+def get_torrent_info(file_path):
+    parser = TorrentFileParser(file_path)
+    data = parser.parse()
+    name = data['info'].get('name', 'Unknown')
+    files = data['info'].get('files', [])
+    total_size = sum(f['length'] for f in files) if files else data['info'].get('length', 0)
+    formatted_files = "\n".join(
+        [f"- {f['path'][0]} ({f['length'] / (1024 * 1024):.2f} MB)" for f in files]
+    ) if files else f"- {name} ({total_size / (1024 * 1024):.2f} MB)"
+
+    return f"File name: {name}\nTotal size: {total_size / (1024 * 1024):.2f} MB\nFiles:\n{formatted_files}"
 
 
 async def handle_file(update: Update, context):
@@ -22,15 +56,24 @@ async def handle_file(update: Update, context):
 
     file = update.message.document
     if not file.file_name.endswith(".torrent"):
-        await update.message.reply_text("Принимаются только .torrent файлы.")
+        await update.message.reply_text("Accept only .torrent files.")
         return
 
     target_folder = Path(settings.FOLDER)
     file_path = target_folder / file.file_name
+
+    existing_files = list(target_folder.glob(f"{file.file_name}*"))
+    if existing_files:
+        await update.message.reply_text(
+            f"File with the same name already exists: {existing_files[0].name}"
+        )
+        return
+
     try:
         file_data = await file.get_file()
         await file_data.download_to_drive(str(file_path))
-        await update.message.reply_text(f"Файл сохранён: {file.file_name}")
+        torrent_info = get_torrent_info(str(file_path))
+        await update.message.reply_text(f"Файл сохранён: {file.file_name}\n\nИнформация о файле:\n{torrent_info}")
     except Exception as e:
         logging.error(f"Ошибка при сохранении файла: {e}")
         await update.message.reply_text(f"Не удалось сохранить файл: {file.file_name}")
@@ -43,14 +86,18 @@ async def notify_admin(bot, message):
         logging.error(f"Не удалось отправить сообщение админу {settings.ADMINS[0]}: {e}")
 
 
-async def on_startup(app: Application):
-    await notify_admin(app.bot, "Бот запущен и готов к работе.")
-    logging.info("Bot started")
+async def on_startup(bot):
+    await notify_admin(bot, "Bot started.")
+    logging.info("Bot started.")
 
 
-async def on_shutdown(app: Application):
-    await notify_admin(app.bot, "Бот завершает работу.")
-    logging.info("Bot stopped")
+async def on_shutdown(bot):
+    uptime = get_uptime_message()
+    try:
+        message = f"Bot stopped.\n\nUptime:\n{uptime}"
+        await bot.send_message(chat_id=settings.ADMINS[0], text=message)
+    except Exception as e:
+        logging.error(f"Unable to send message to admin {settings.ADMINS[0]}: {e}")
 
 
 def main():
@@ -60,8 +107,8 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    app.post_init_callback = lambda: run(on_startup(app))
-    app.shutdown_callback = lambda: run(on_shutdown(app))
+    app.post_init_callback = lambda: run(on_startup(app.bot))
+    app.shutdown_callback = lambda: run(on_shutdown(app.bot))
 
     app.run_polling()
 
