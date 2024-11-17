@@ -43,23 +43,25 @@ async def notify_admin(bot, message):
         logging.error(f"Не удалось отправить сообщение админу {settings.ADMINS[0]}: {e}")
 
 
-async def main():
+async def on_startup(app: Application):
+    await notify_admin(app.bot, "Бот запущен и готов к работе.")
+    logging.info("Bot started")
+
+
+async def on_shutdown(app: Application):
+    await notify_admin(app.bot, "Бот завершает работу.")
+    logging.info("Bot stopped")
+
+
+def main():
     setup_logs('torrent_bot')
     app = Application.builder().token(settings.TOKEN.get_secret_value()).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    async def on_startup():
-        await notify_admin(app.bot, "Бот запущен и готов к работе.")
-        logging.info("Bot started")
-
-    async def on_shutdown():
-        await notify_admin(app.bot, "Бот завершает работу.")
-        logging.info("Bot stopped")
-
-    app.post_init = on_startup
-    app.shutdown = on_shutdown
+    app.post_init_callback = lambda: run(on_startup(app))
+    app.shutdown_callback = lambda: run(on_shutdown(app))
 
     app.run_polling()
 
