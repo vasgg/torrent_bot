@@ -1,4 +1,4 @@
-from asyncio import get_event_loop
+from asyncio import run
 import logging
 from pathlib import Path
 from torrent_parser import TorrentFileParser
@@ -91,18 +91,9 @@ async def notify_admin(bot, message):
         logging.error(f"Unable to send message to admin {settings.ADMINS[0]}: {e}")
 
 
-async def on_startup(bot):
-    await notify_admin(bot, "Bot started.")
+async def on_startup(app):
+    await notify_admin(app.bot, "Bot started.")
     logging.info("Bot started.")
-
-
-async def on_shutdown(bot):
-    uptime = get_uptime_message()
-    try:
-        message = f"Bot stopped.\n\nUptime:\n{uptime}"
-        await bot.send_message(chat_id=settings.ADMINS[0], text=message)
-    except Exception as e:
-        logging.error(f"Unable to send message to admin {settings.ADMINS[0]}: {e}")
 
 
 def main():
@@ -112,8 +103,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    app.post_init = lambda: get_event_loop().create_task(on_startup(app))
-    app.shutdown = lambda: get_event_loop().create_task(on_shutdown(app))
+    app.post_init = lambda _: run(on_startup(app))
 
     app.run_polling()
 
