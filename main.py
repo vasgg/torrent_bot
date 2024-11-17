@@ -1,3 +1,4 @@
+from asyncio import run
 import logging
 from pathlib import Path
 
@@ -21,7 +22,7 @@ async def handle_file(update: Update, context):
 
     file = update.message.document
     if not file.file_name.endswith(".torrent"):
-        await update.message.reply_text("Я принимаю только .torrent файлы.")
+        await update.message.reply_text("Принимаются только .torrent файлы.")
         return
 
     target_folder = Path(settings.FOLDER)
@@ -35,16 +36,32 @@ async def handle_file(update: Update, context):
         await update.message.reply_text(f"Не удалось сохранить файл: {file.file_name}")
 
 
-def main():
+async def notify_admin(bot, message):
+    try:
+        await bot.send_message(chat_id=settings.ADMINS[0], text=message)
+    except Exception as e:
+        logging.error(f"Не удалось отправить сообщение админу {settings.ADMINS[0]}: {e}")
+
+
+async def main():
     setup_logs('torrent_bot')
     app = Application.builder().token(settings.TOKEN.get_secret_value()).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    await notify_admin(app.bot, "Бот запущен и готов к работе.")
 
-    logging.info("Bot started")
-    app.run_polling()
+    try:
+        logging.info("Bot started")
+        app.run_polling()
+    finally:
+        await notify_admin(app.bot, "Бот завершает работу.")
+        logging.info("Bot stopped")
+
+
+def run_main():
+    run(main())
 
 
 if __name__ == '__main__':
-    main()
+    run_main()
