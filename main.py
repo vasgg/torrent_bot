@@ -16,7 +16,7 @@ async def start(update: Update, context):
     uptime = get_uptime_message()
     message = (
         texts['welcome'].format(username=update.message.from_user.full_name) +
-        f"\n\nUptime:\n{uptime}"
+        f"\n\n{uptime}"
     )
     await update.message.reply_text(message)
 
