@@ -101,6 +101,7 @@ def record_session_heartbeat() -> None:
         sessions[boot_id]["last_seen"] = now_iso
 
     _save_state(state)
+    logging.info(f"Heartbeat recorded for boot_id={boot_id}: start={sessions[boot_id]['start']}, last_seen={sessions[boot_id]['last_seen']}")
 
 
 def get_last_session_uptime_message() -> str:
@@ -189,10 +190,14 @@ async def handle_file(update: Update, context):
 
 async def notify_admin(bot, message):
     try:
-        await bot.send_message(
-            chat_id=settings.ADMINS[0],
-            text=message + f"\n\n{current_uptime}",
-        )
+        prev_uptime = get_last_session_uptime_message()
+        current_uptime = get_uptime_message()
+        text = message + f"\n\n{prev_uptime}\n{current_uptime}"
+    except Exception as e:
+        logging.error(f"Failed to prepare admin notification text: {e}")
+        text = message
+    try:
+        await bot.send_message(chat_id=settings.ADMINS[0], text=text)
     except Exception as e:
         logging.error(f"Unable to send message to admin {settings.ADMINS[0]}: {e}")
 
@@ -205,9 +210,11 @@ async def _heartbeat_job(context):
 
 
 async def on_startup(app):
+    logging.info("on_startup: recording initial heartbeat")
     record_session_heartbeat()
     try:
-        app.job_queue.run_repeating(_heartbeat_job, interval=60, first=60)
+        app.job_queue.run_repeating(_heartbeat_job, interval=60, first=10, name="uptime_heartbeat")
+        logging.info("on_startup: heartbeat job scheduled (interval=60s, first=10s)")
     except Exception as e:
         logging.error(f"Failed to schedule heartbeat job: {e}")
 
@@ -217,12 +224,17 @@ async def on_startup(app):
 
 def main():
     setup_logs('torrent_bot')
-    app = Application.builder().token(settings.TOKEN.get_secret_value()).build()
+    app = (
+        Application
+        .builder()
+        .token(settings.TOKEN.get_secret_value())
+        .post_init(on_startup)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
-    app.post_init = on_startup
     app.run_polling()
 
 
