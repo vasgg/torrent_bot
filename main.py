@@ -2,6 +2,7 @@ import logging
 import json
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Dict, Any
 from torrent_parser import TorrentFileParser
@@ -131,9 +132,12 @@ def get_last_session_uptime_message() -> str:
         hours, rem = divmod(delta.seconds, 3600)
         minutes, _ = divmod(rem, 60)
 
+        tbilisi_tz = ZoneInfo("Asia/Tbilisi")
+        end_dt_tbs = end_dt.astimezone(tbilisi_tz)
+
         return (
             f"Previous session uptime until shutdown: {days} days, {hours} hours, {minutes} minutes.\n"
-            f"Last shutdown (approx): {end_dt.strftime('%Y-%m-%d %H:%M:%S %Z')} UTC."
+            f"Last shutdown (approx): {end_dt_tbs.strftime('%Y-%m-%d %H:%M:%S %z')}."
         )
     except Exception as e:
         logging.error(f"Unable to compute previous session uptime: {e}")
