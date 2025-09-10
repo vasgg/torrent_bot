@@ -254,3 +254,5 @@ __pycache__
 .idea
 src/leadtgbot.egg-info
 
+# Local state files (uptime tracker)
+.uptime_state.json
