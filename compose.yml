@@ -1,0 +1,9 @@
+services:
+  bot:
+    build: .
+    container_name: torrent_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ${TORRENT_DIR}:/mnt/foundation/torrents/incoming
