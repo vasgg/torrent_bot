@@ -2,8 +2,10 @@ import logging
 from pathlib import Path
 
 from aiogram import Router, F, types, Bot
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.types import Message
+
+from datetime import datetime, timezone
 
 from src.config import settings
 from src.utils import get_uptime_message, get_torrent_info
@@ -71,3 +73,16 @@ async def notify_admin(bot: Bot, message: str):
             await bot.send_message(chat_id=settings.ADMIN_IDS[0], text=text)
         except Exception as e:
             logging.error(f"Unable to send message to admin {settings.ADMIN_IDS[0]}: {e}")
+
+
+@router.message(Command("health"), F.from_user.id.in_(settings.ADMIN_IDS))
+async def cmd_health(message: Message):
+    trigger_path = Path("/triggers/health.run")
+    trigger_path.parent.mkdir(parents=True, exist_ok=True)
+
+    trigger_path.write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
+
+    await message.answer(
+        "<pre>/health accepted. Running host healthcheck...</pre>",
+        parse_mode="HTML",
+    )
