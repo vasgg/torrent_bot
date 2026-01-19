@@ -7,3 +7,4 @@ services:
       - .env
     volumes:
       - ${TORRENT_DIR}:/mnt/foundation/torrents/incoming
+      - /var/lib/zimamon/triggers:/triggers
