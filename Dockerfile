@@ -17,8 +17,8 @@ RUN uv sync --frozen --no-install-project --python 3.12
 COPY src ./src
 
 
-# Create torrents directory
-RUN mkdir -p /mnt/foundation/torrents/incoming
+# Create torrents directory (for local runs without a volume)
+RUN mkdir -p /mnt/foundation/torrents/incoming/Movies /mnt/foundation/torrents/incoming/Series
 
 
 # Run the bot
