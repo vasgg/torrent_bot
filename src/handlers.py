@@ -79,7 +79,7 @@ async def cmd_start(message: Message) -> None:
     uptime = get_uptime_message()
     text = (
         f"Hi, {message.from_user.full_name}.\n\n"
-        "Send .torrent files (single or batch). I'll ask Movies/Series and save them to the right folder.\n\n"
+        "Send .torrent files (single or batch).\n\n"
         f"{uptime}"
     )
     await message.answer(text)
