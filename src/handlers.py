@@ -53,17 +53,17 @@ def _cleanup_expired_batches() -> None:
 
 def _build_batch_keyboard(group_key: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="Movies", callback_data=f"tclass|{group_key}|movies")
-    kb.button(text="Series", callback_data=f"tclass|{group_key}|series")
-    kb.button(text="Отмена", callback_data=f"tclass|{group_key}|cancel")
+    kb.button(text="🎬 Movies", callback_data=f"tclass|{group_key}|movies")
+    kb.button(text="📺 Series", callback_data=f"tclass|{group_key}|series")
+    kb.button(text="✖️ Cancel", callback_data=f"tclass|{group_key}|cancel")
     kb.adjust(2, 1)
     return kb.as_markup()
 
 
 def _prompt_text(file_count: int) -> str:
     if file_count == 1:
-        return "Получен 1 .torrent. К какому типу контента отнести?"
-    return f"Получено {file_count} .torrent. К какому типу контента отнести пачку?"
+        return "Got 1 .torrent file. Where should I put it?"
+    return f"Got {file_count} .torrent files. Where should I put this batch?"
 
 
 def _safe_torrent_filename(file_name: str) -> str:
@@ -78,8 +78,8 @@ def _dest_subdir(content_type: BatchType) -> str:
 async def cmd_start(message: Message) -> None:
     uptime = get_uptime_message()
     text = (
-        f"Привет, {message.from_user.full_name}!\n\n"
-        "Пришли .torrent (можно пачкой). Я спрошу Movies/Series и сохраню в нужную папку.\n\n"
+        f"Hi, {message.from_user.full_name}.\n\n"
+        "Send .torrent files (single or batch). I'll ask Movies/Series and save them to the right folder.\n\n"
         f"{uptime}"
     )
     await message.answer(text)
@@ -90,7 +90,7 @@ async def handle_torrent_file(message: Message, bot: Bot) -> None:
     document = message.document
     file_name = document.file_name or ""
     if not file_name.lower().endswith(".torrent"):
-        await message.answer("Принимаю только файлы .torrent.")
+        await message.answer("Only .torrent files are supported.")
         return
 
     _cleanup_expired_batches()
@@ -162,13 +162,13 @@ async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
 
     parts = (callback.data or "").split("|", 2)
     if len(parts) != 3:
-        await callback.answer("Некорректная команда.", show_alert=True)
+        await callback.answer("Invalid action.", show_alert=True)
         return
 
     _, group_key, action = parts
     batch = _pending_batches.get(group_key)
     if not batch:
-        await callback.answer("Эта пачка уже обработана или устарела.", show_alert=True)
+        await callback.answer("This batch is already processed or expired.", show_alert=True)
         try:
             if callback.message:
                 await callback.message.edit_reply_markup(reply_markup=None)
@@ -178,22 +178,22 @@ async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
 
     if callback.from_user.id != batch.owner_user_id:
         await callback.answer(
-            "Эту пачку должен подтвердить тот, кто её отправил.", show_alert=True
+            "This batch must be confirmed by the sender.", show_alert=True
         )
         return
 
     if action == "cancel":
         _pending_batches.pop(group_key, None)
-        await callback.answer("Отменено.")
+        await callback.answer("Canceled.")
         if callback.message:
             try:
-                await callback.message.edit_text("Ок, отменил.", reply_markup=None)
+                await callback.message.edit_text("Canceled.", reply_markup=None)
             except Exception:
                 pass
         return
 
     if action not in {"movies", "series"}:
-        await callback.answer("Неизвестное действие.", show_alert=True)
+        await callback.answer("Unknown action.", show_alert=True)
         return
 
     dest_dir = Path(settings.TORRENT_DIR) / _dest_subdir(action)
@@ -201,7 +201,7 @@ async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
         dest_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logging.error(f"Unable to create destination dir {dest_dir}: {e}")
-        await callback.answer("Не могу создать папку назначения.", show_alert=True)
+        await callback.answer("Can't create destination folder.", show_alert=True)
         return
 
     saved: list[str] = []
@@ -240,7 +240,7 @@ async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
         try:
             pretty_type = _dest_subdir(action)
             await callback.message.edit_text(
-                f"Выбрано: {pretty_type}. Сохранено: {len(saved)}, пропущено (дубли): {len(skipped)}, ошибок: {len(errors)}.",
+                f"{pretty_type}: saved {len(saved)}, skipped {len(skipped)} (duplicates), errors {len(errors)}.",
                 reply_markup=None,
             )
         except Exception:
@@ -249,12 +249,12 @@ async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
     if callback.message:
         try:
             lines: list[str] = [
-                f"Папка: {dest_dir}",
-                f"Сохранено: {len(saved)}",
-                f"Пропущено (дубли): {len(skipped)}",
+                f"Folder: {dest_dir}",
+                f"Saved: {len(saved)}",
+                f"Skipped (duplicates): {len(skipped)}",
             ]
             if errors:
-                lines.append(f"Ошибок: {len(errors)}")
+                lines.append(f"Errors: {len(errors)}")
 
             if len(batch.files) == 1 and saved:
                 file_path = dest_dir / saved[0]
