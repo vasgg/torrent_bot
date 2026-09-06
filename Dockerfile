@@ -9,9 +9,7 @@ ENV PYTHONPATH=/app
 
 # Install dependencies
 COPY pyproject.toml uv.lock ./
-# Install build dependencies for compiling packages
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
-RUN uv sync --frozen --no-install-project --python 3.12
+RUN uv sync --frozen --no-dev --no-install-project --python 3.12
 
 # Copy source code
 COPY src ./src
@@ -22,4 +20,4 @@ RUN mkdir -p /mnt/foundation/torrents/incoming/Movies /mnt/foundation/torrents/i
 
 
 # Run the bot
-CMD ["uv", "run", "python", "src/main.py"]
+CMD ["/app/.venv/bin/python", "-m", "src.main"]

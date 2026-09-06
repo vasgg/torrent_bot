@@ -2,18 +2,20 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 from typing import Literal
 
 from aiogram import Bot, F, Router, types
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import InlineKeyboardMarkup, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from datetime import datetime, timezone
-
 from src.config import settings
-from src.utils import get_torrent_info, get_uptime_message
+from src.uptime import UptimeStore
+from src.utils import get_torrent_info, get_uptime_message, save_torrent
 
 router = Router()
 
@@ -78,8 +80,11 @@ def _dest_subdir(content_type: BatchType) -> str:
 async def cmd_start(message: Message) -> None:
     uptime = get_uptime_message()
     text = (
-        f"Hi, {message.from_user.full_name}.\n\n"
+        f"Hi, {escape(message.from_user.full_name)}.\n\n"
         "Send .torrent files (single or batch).\n\n"
+        "/uptime — availability summary\n"
+        "/outages — recent downtime\n"
+        "/health — host healthcheck\n\n"
         f"{uptime}"
     )
     await message.answer(text)
@@ -152,11 +157,13 @@ async def _send_batch_prompt(bot: Bot, group_key: str) -> None:
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        logging.error(f"Unable to send batch prompt: {e}")
+        logging.error("Unable to send batch prompt: %s", type(e).__name__)
         _pending_batches.pop(group_key, None)
 
 
-@router.callback_query(F.data.startswith("tclass|"), F.from_user.id.in_(settings.ADMIN_IDS))
+@router.callback_query(
+    F.data.startswith("tclass|"), F.from_user.id.in_(settings.ADMIN_IDS)
+)
 async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
     _cleanup_expired_batches()
 
@@ -168,7 +175,9 @@ async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
     _, group_key, action = parts
     batch = _pending_batches.get(group_key)
     if not batch:
-        await callback.answer("This batch is already processed or expired.", show_alert=True)
+        await callback.answer(
+            "This batch is already processed or expired.", show_alert=True
+        )
         try:
             if callback.message:
                 await callback.message.edit_reply_markup(reply_markup=None)
@@ -196,12 +205,25 @@ async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
         await callback.answer("Unknown action.", show_alert=True)
         return
 
+    # Claim before the first await so a double click cannot process this batch twice.
+    _pending_batches.pop(group_key, None)
+    if batch.prompt_task and not batch.prompt_task.done():
+        batch.prompt_task.cancel()
+    try:
+        await callback.answer("Saving...")
+    except TelegramAPIError as exc:
+        # Telegram can expire a callback while the server is offline.
+        logging.warning("Unable to acknowledge batch: %s", type(exc).__name__)
+
     dest_dir = Path(settings.TORRENT_DIR) / _dest_subdir(action)
     try:
         dest_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logging.error(f"Unable to create destination dir {dest_dir}: {e}")
-        await callback.answer("Can't create destination folder.", show_alert=True)
+        if callback.message:
+            await callback.message.answer(
+                "Can't create destination folder. Please send the files again."
+            )
         return
 
     saved: list[str] = []
@@ -226,15 +248,13 @@ async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
             continue
 
         try:
-            await bot.download(document, destination=target_path)
-            saved.append(safe_name)
+            if await save_torrent(bot, document, target_path):
+                saved.append(safe_name)
+            else:
+                skipped.append(safe_name)
         except Exception as e:
-            logging.error(f"Unable to save file {safe_name}: {e}")
+            logging.error("Unable to save file %s: %s", safe_name, type(e).__name__)
             errors.append(safe_name)
-
-    _pending_batches.pop(group_key, None)
-
-    await callback.answer("Готово.")
 
     if callback.message:
         try:
@@ -264,24 +284,22 @@ async def classify_batch(callback: types.CallbackQuery, bot: Bot) -> None:
                 lines.append("Torrent info:")
                 lines.append(torrent_info)
 
-            await callback.message.answer("\n".join(lines))
+            await callback.message.answer("\n".join(lines)[:4000], parse_mode=None)
         except Exception as e:
-            logging.error(f"Unable to send summary: {e}")
+            logging.error("Unable to send summary: %s", type(e).__name__)
 
 
-async def notify_admin(bot: Bot, message: str):
-    try:
-        current_uptime = get_uptime_message()
-        text = message + f"\n\n{current_uptime}"
-    except Exception as e:
-        logging.error(f"Failed to prepare admin notification text: {e}")
-        text = message
-    
-    if settings.ADMIN_IDS:
-        try:
-            await bot.send_message(chat_id=settings.ADMIN_IDS[0], text=text)
-        except Exception as e:
-            logging.error(f"Unable to send message to admin {settings.ADMIN_IDS[0]}: {e}")
+@router.message(Command("uptime"), F.from_user.id.in_(settings.ADMIN_IDS))
+async def cmd_uptime(message: Message, uptime_store: UptimeStore) -> None:
+    await message.answer(
+        get_uptime_message() + "\n\n" + uptime_store.summary(time.time()),
+        parse_mode=None,
+    )
+
+
+@router.message(Command("outages"), F.from_user.id.in_(settings.ADMIN_IDS))
+async def cmd_outages(message: Message, uptime_store: UptimeStore) -> None:
+    await message.answer(uptime_store.history(), parse_mode=None)
 
 
 @router.message(Command("health"), F.from_user.id.in_(settings.ADMIN_IDS))

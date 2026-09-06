@@ -2,9 +2,19 @@ services:
   bot:
     build: .
     container_name: torrent_bot
+    init: true
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      UPTIME_DB: /data/uptime.sqlite3
+      TORRENT_DIR: /mnt/foundation/torrents/incoming
     volumes:
-      - ${TORRENT_DIR}:/mnt/foundation/torrents/incoming
+      - ${TORRENT_DIR:?Set TORRENT_DIR to the host incoming directory}:/mnt/foundation/torrents/incoming
       - /var/lib/zimamon/triggers:/triggers
+      - ./data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
