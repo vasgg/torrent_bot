@@ -1,4 +1,6 @@
 import asyncio
+import os
+import stat
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -55,6 +57,29 @@ async def test_cancelled_download_cleans_staging_file(tmp_path, document):
     with pytest.raises(asyncio.CancelledError):
         await save_torrent(bot, document, tmp_path / "test.torrent")
     assert list(tmp_path.iterdir()) == []
+
+
+async def test_torrent_is_readable_by_host_service_when_published(
+    tmp_path, monkeypatch, document
+):
+    target = tmp_path / "test.torrent"
+    link = os.link
+
+    def watch_publication(source, destination):
+        link(source, destination)
+        # Simulate qBittorrent observing the new file immediately under a different UID/GID.
+        mode = target.stat().st_mode
+        assert mode & stat.S_IRGRP
+        assert mode & stat.S_IROTH
+        assert not mode & (stat.S_IWGRP | stat.S_IWOTH)
+        assert target.read_bytes() == b"complete"
+
+    async def download(document, destination):
+        destination.write(b"complete")
+        assert not target.exists()
+
+    monkeypatch.setattr(os, "link", watch_publication)
+    assert await save_torrent(SimpleNamespace(download=download), document, target)
 
 
 async def test_double_click_processes_batch_once(tmp_path, monkeypatch, document):

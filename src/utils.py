@@ -16,6 +16,9 @@ async def save_torrent(bot: "Bot", document: "Document", target: Path) -> bool:
     with tempfile.NamedTemporaryFile(dir=target.parent, suffix=".part") as staging:
         await bot.download(document, destination=staging)
         staging.flush()
+        # NamedTemporaryFile starts at 0600; the host torrent client runs as another user.
+        # Set read access before publishing, so the watch folder never sees an unreadable file.
+        os.fchmod(staging.fileno(), 0o644)
         os.fsync(staging.fileno())
         try:
             os.link(staging.name, target)
