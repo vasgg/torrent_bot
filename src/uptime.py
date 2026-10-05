@@ -117,12 +117,20 @@ class UptimeStore:
                         "Clock moved backwards; previous downtime cannot be estimated."
                     )
                 elif startup or reboot or gap >= OUTAGE_SECONDS:
+                    last_outage = db.execute(
+                        "SELECT ended_at FROM outages ORDER BY id DESC LIMIT 1"
+                    ).fetchone()
+                    online_since = (
+                        last_outage["ended_at"]
+                        if last_outage is not None
+                        else previous["first_seen"]
+                    )
                     db.execute(
                         "INSERT INTO outages (started_at, ended_at, kind) VALUES (?, ?, ?)",
                         (start, now, kind),
                     )
                     text = ("Bot started." if startup else "Bot is back online.") + "\n"
-                    text += self.interval_message(start, now, kind)
+                    text += self.interval_message(start, now, kind, online_since)
                     logging.info(
                         "Availability event: %s, %.0f seconds", kind, now - start
                     )
@@ -140,12 +148,20 @@ class UptimeStore:
         with closing(self.connect()) as db, db:
             db.execute("UPDATE state SET stopped_at = ? WHERE id = 1", (now,))
 
-    def interval_message(self, start: float, end: float, kind: str) -> str:
+    def interval_message(
+        self, start: float, end: float, kind: str, online_since: float | None
+    ) -> str:
+        previous_uptime = (
+            f"~{duration(start - online_since)}"
+            if online_since is not None and online_since <= start
+            else "unknown (inconsistent timestamps)"
+        )
         return (
             f"{KINDS[kind]}\n"
             f"Offline since: ~{self.timestamp(start)}\n"
             f"Back online: {self.timestamp(end)}\n"
-            f"Downtime: ~{duration(end - start)} ({self.timezone.key})"
+            f"Downtime: ~{duration(end - start)} ({self.timezone.key})\n"
+            f"Previous uptime: {previous_uptime}"
         )
 
     def pending_notifications(self) -> list[sqlite3.Row]:
@@ -161,12 +177,21 @@ class UptimeStore:
     def history(self) -> str:
         with closing(self.connect()) as db:
             rows = db.execute(
-                "SELECT * FROM outages ORDER BY id DESC LIMIT 10"
+                """
+                SELECT current.*, COALESCE(
+                    (SELECT previous.ended_at FROM outages AS previous
+                     WHERE previous.id < current.id ORDER BY previous.id DESC LIMIT 1),
+                    (SELECT first_seen FROM state WHERE id = 1)
+                ) AS online_since
+                FROM outages AS current ORDER BY current.id DESC LIMIT 10
+                """
             ).fetchall()
         if not rows:
             return "No downtime recorded yet."
         return "Last 10 availability events:\n\n" + "\n\n".join(
-            self.interval_message(row["started_at"], row["ended_at"], row["kind"])
+            self.interval_message(
+                row["started_at"], row["ended_at"], row["kind"], row["online_since"]
+            )
             for row in rows
         )
 

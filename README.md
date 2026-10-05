@@ -10,7 +10,7 @@ use the commands.
 - `/uptime` — system uptime, the number and total duration of downtimes lasting
   at least two minutes in the last 30 days, and observed server reboots.
 - `/outages` — the latest 10 events with estimated start time, recovery time, and
-  duration. The complete history remains in SQLite.
+  duration, plus uptime before each event. The complete history remains in SQLite.
 - `/health` — creates `/triggers/health.run` for the existing host healthcheck.
 - Send `.torrent` files — choose Movies / Series for a single file or a batch.
 
@@ -28,6 +28,28 @@ with a notification sent after connectivity returns. Pending notifications are
 stored in the database and retried. The recipient is the first entry in
 `ADMIN_IDS`, as before. A crash between sending a notification and recording its
 delivery may cause a duplicate notification.
+
+Notifications and `/outages` also show `Previous uptime`: the time from the
+previous recorded recovery/startup to the beginning of the next downtime. For the
+first interval, it starts at the first observation. This measures the bot's
+continuous observed availability, rather than the host's boot uptime: a bot
+restart or a recorded connection outage starts a new period. Gaps below the
+two-minute connection-outage threshold do not reset it.
+
+For example, a notification can show:
+
+```text
+Server reboot (possible power outage)
+Offline since: ~2026-10-06 09:00:00
+Back online: 2026-10-06 12:00:00
+Downtime: ~0d 3h 0m 0s (Asia/Tbilisi)
+Previous uptime: ~15d 0h 0m 0s
+```
+
+This value is calculated from existing history, including older events; no database
+migration is needed. Already queued notification text is preserved. Inconsistent
+timestamps (for example, a clock adjustment placing a recovery after the next
+outage start) are reported as unknown instead of a negative uptime.
 
 Event types:
 

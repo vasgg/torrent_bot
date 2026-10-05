@@ -39,6 +39,11 @@ def test_power_loss_survives_reopening_database(store):
     assert event["kind"] == "host_restart"
     assert (event["started_at"], event["ended_at"]) == (1060, 4660)
     assert "1h 0m 0s" in reopened.pending_notifications()[-1]["message"]
+    assert (
+        "Previous uptime: ~0d 0h 1m 0s"
+        in reopened.pending_notifications()[-1]["message"]
+    )
+    assert "Previous uptime: ~0d 0h 1m 0s" in reopened.history()
     assert "Server reboots observed: 1" in reopened.summary(4720)
 
 
@@ -66,6 +71,7 @@ def test_clean_restart_is_not_a_power_outage(store):
     assert "Downtimes of at least 2 min: 0" in store.summary(1060)
     assert "Server reboots observed: 0" in store.summary(1060)
     assert "10s" in store.history()
+    assert "Previous uptime: ~0d 0h 0m 40s" in store.history()
 
 
 def test_orderly_shutdown_followed_by_host_reboot(store):
@@ -179,3 +185,93 @@ async def test_monitor_cancellation_propagates(store):
 def test_duration():
     assert duration(90061) == "1d 1h 1m 1s"
     assert duration(-1) == "0d 0h 0m 0s"
+
+
+def test_previous_uptime_starts_at_last_recovery(store):
+    store.online(1000, "boot-a", startup=True)
+    store.online(1060, "boot-a")
+    store.online(1600, "boot-a")
+    store.online(1660, "boot-a")
+    UptimeStore(store.path).online(5200, "boot-b", startup=True)
+
+    notification = store.pending_notifications()[-1]["message"]
+    assert "Previous uptime: ~0d 0h 1m 0s" in notification
+    assert store.history().count("Previous uptime: ~0d 0h 1m 0s") == 2
+
+
+def test_short_connection_gap_does_not_reset_previous_uptime(store):
+    store.online(1000, "boot-a", startup=True)
+    store.online(1119, "boot-a")
+    store.online(1800, "boot-b", startup=True)
+    assert (
+        "Previous uptime: ~0d 0h 1m 59s" in store.pending_notifications()[-1]["message"]
+    )
+
+
+def test_history_uses_recovery_before_visible_page(store):
+    store.online(1000, "boot-a", startup=True)
+    for i in range(12):
+        store.online(1060 + i * 600, "boot-a")
+        store.online(1600 + i * 600, "boot-a")
+    assert store.history().count("Previous uptime: ~0d 0h 1m 0s") == 10
+
+
+def test_existing_database_reports_fifteen_days_without_migration(tmp_path):
+    path = tmp_path / "existing.sqlite3"
+    first = 1_700_000_000
+    offline = first + 15 * 86400
+    recovered = offline + 3 * 3600
+    # Snapshot in the deployed schema, before the new reporting feature existed.
+    with closing(sqlite3.connect(path)) as db, db:
+        db.executescript("""
+            CREATE TABLE state (
+                id INTEGER PRIMARY KEY, first_seen REAL NOT NULL,
+                last_seen REAL NOT NULL, boot_id TEXT, stopped_at REAL
+            );
+            CREATE TABLE outages (
+                id INTEGER PRIMARY KEY, started_at REAL NOT NULL,
+                ended_at REAL NOT NULL, kind TEXT NOT NULL
+            );
+            CREATE TABLE notifications (id INTEGER PRIMARY KEY, message TEXT NOT NULL);
+            INSERT INTO notifications VALUES (1, 'Previously queued notification');
+        """)
+        db.execute(
+            "INSERT INTO state VALUES (1, ?, ?, 'boot-a', NULL)", (first, offline)
+        )
+
+    store = UptimeStore(path)
+    store.online(recovered, "boot-b", startup=True)
+    assert "Downtime: ~0d 3h 0m 0s" in store.pending_notifications()[-1]["message"]
+    assert (
+        "Previous uptime: ~15d 0h 0m 0s" in store.pending_notifications()[-1]["message"]
+    )
+    reopened = UptimeStore(path)
+    assert "Previous uptime: ~15d 0h 0m 0s" in reopened.history()
+    assert (
+        reopened.pending_notifications()[0]["message"]
+        == "Previously queued notification"
+    )
+
+
+def test_older_events_gain_previous_uptime_without_rewriting_history(store):
+    with closing(store.connect()) as db, db:
+        db.execute("INSERT INTO state VALUES (1, 1000, 3000, 'boot-b', NULL)")
+        db.execute("INSERT INTO outages VALUES (1, 1060, 1600, 'connection')")
+        db.execute("INSERT INTO outages VALUES (2, 1720, 3000, 'host_restart')")
+    before = events(store)
+    history = UptimeStore(store.path).history()
+    assert "Previous uptime: ~0d 0h 1m 0s" in history
+    assert "Previous uptime: ~0d 0h 2m 0s" in history
+    assert events(store) == before
+
+
+def test_clock_reset_does_not_report_negative_previous_uptime(store):
+    store.online(1000, "boot-a", startup=True)
+    store.online(900, "boot-a")
+    store.online(960, "boot-a")
+    store.online(1200, "boot-b", startup=True)
+    assert "Previous uptime: unknown (inconsistent timestamps)" in store.history()
+    assert (
+        "Previous uptime: unknown (inconsistent timestamps)"
+        in store.pending_notifications()[-1]["message"]
+    )
